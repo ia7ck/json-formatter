@@ -1,0 +1,14 @@
+name: jsonfmt
+version: "1.0.0"
+author: ia7ck
+about: Format JSON
+args:
+    - json_file:
+        required: false
+        index: 1
+    - in_place:
+        help: overwrite <json_file> if specified
+        required: false
+        takes_value: false
+        short: i
+        long: in-place
