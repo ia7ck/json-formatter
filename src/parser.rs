@@ -180,26 +180,33 @@ mod tests {
         Key(String::from(s))
     }
 
+    fn parser(s: &str) -> Parser<Cursor<&str>> {
+        Parser::new(Cursor::new(s))
+    }
+
     #[test]
     fn test_parse_string() {
-        let mut p = Parser::new(Cursor::new(r#""abc de f""#));
+        let mut p = parser(r#""abc de f""#);
         let v = p.parse_string_value().unwrap();
         assert_eq!(v, string("abc de f"));
     }
+
     #[test]
     fn test_ng_parse_string() {
-        let mut p = Parser::new(Cursor::new(r#"abc de f""#));
+        let mut p = parser(r#"abc de f""#);
         assert!(p.parse_string_value().is_err());
 
-        let mut p = Parser::new(Cursor::new(r#""abc de f"#));
+        let mut p = parser(r#""abc de f"#);
         assert!(p.parse_string_value().is_err());
     }
+
     #[test]
     fn test_parse_number() {
-        let mut p = Parser::new(Cursor::new("-123.45"));
+        let mut p = parser("-123.45");
         let v = p.parse_number().unwrap();
         assert_eq!(v, number("-123.45"));
     }
+
     fn test_object<F>(v: Value, f: F)
     where
         F: Fn(Vec<Pair>),
@@ -211,17 +218,19 @@ mod tests {
             _ => unreachable!("not object"),
         }
     }
+
     #[test]
     fn test_parse_empty_object() {
-        let mut p = Parser::new(Cursor::new("{     }"));
+        let mut p = parser("{     }");
         let v: Value = p.parse_object().unwrap();
         test_object(v, |pairs: Vec<Pair>| {
             assert!(pairs.is_empty());
         });
     }
+
     #[test]
     fn test_parse_object() {
-        let mut p = Parser::new(Cursor::new(r#"{"a" : 123,      "bc"  :"xyz"   }"#));
+        let mut p = parser(r#"{"a" : 123,      "bc"  :"xyz"   }"#);
         let v: Value = p.parse_object().unwrap();
         test_object(v, |pairs: Vec<Pair>| {
             let expected = vec![
@@ -231,11 +240,10 @@ mod tests {
             assert_eq!(pairs, expected);
         });
     }
+
     #[test]
     fn test_parse_nested_object() {
-        let mut p = Parser::new(Cursor::new(
-            r#"{"a": {"bc": 12345, "def": "xyz"}, "ijk": 0}"#,
-        ));
+        let mut p = parser(r#"{"a": {"bc": 12345, "def": "xyz"}, "ijk": 0}"#);
         let v: Value = p.parse_object().unwrap();
         test_object(v, |pairs: Vec<Pair>| {
             let expected = vec![
@@ -251,6 +259,7 @@ mod tests {
             assert_eq!(pairs, expected);
         });
     }
+
     fn test_array<F>(v: Value, f: F)
     where
         F: Fn(Vec<Value>),
@@ -262,9 +271,10 @@ mod tests {
             _ => unreachable!("not array"),
         }
     }
+
     #[test]
     fn test_parse_array() {
-        let mut p = Parser::new(Cursor::new(r#"[1, 23, 456, "xyz"]"#));
+        let mut p = parser(r#"[1, 23, 456, "xyz"]"#);
         let v: Value = p.parse_array().unwrap();
         test_array(v, |values: Vec<Value>| {
             let expected: Vec<Value> =
@@ -275,7 +285,7 @@ mod tests {
 
     #[test]
     fn test_parse_nested_array() {
-        let mut p = Parser::new(Cursor::new(r#"[1, [23, 456], "xyz"]"#));
+        let mut p = parser(r#"[1, [23, 456], "xyz"]"#);
         let v: Value = p.parse_array().unwrap();
         test_array(v, |values: Vec<Value>| {
             let expected: Vec<Value> = vec![
@@ -289,9 +299,7 @@ mod tests {
 
     #[test]
     fn test_parse_combined_object_array() {
-        let mut p = Parser::new(Cursor::new(
-            r#"{"a": [{"id": 1, "text": "xxx"}, {"id": 2, "text": "yyy"}]}"#,
-        ));
+        let mut p = parser(r#"{"a": [{"id": 1, "text": "xxx"}, {"id": 2, "text": "yyy"}]}"#);
         let v: Value = p.parse_object().unwrap();
         test_object(v, |pairs: Vec<Pair>| {
             let expected: Vec<Pair> = vec![Pair::new(
