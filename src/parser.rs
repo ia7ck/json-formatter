@@ -186,25 +186,46 @@ mod tests {
 
     #[test]
     fn test_parse_string() {
-        let mut p = parser(r#""abc de f""#);
-        let v = p.parse_string_value().unwrap();
-        assert_eq!(v, string("abc de f"));
+        let test = |input: &str, result: &str| {
+            let mut p = parser(input);
+            let v = p.parse_string_value().unwrap();
+            assert_eq!(v, string(result));
+        };
+        test(r#""""#, ""); // ""
+        test(r#""   ""#, "   "); // "   "
+        test(r#""abc de f""#, "abc de f"); // "abc de f"
+        test(r#""abc\nde f""#, "abc\\nde f"); // "abc\nde f"
     }
 
     #[test]
     fn test_ng_parse_string() {
-        let mut p = parser(r#"abc de f""#);
-        assert!(p.parse_string_value().is_err());
-
-        let mut p = parser(r#""abc de f"#);
-        assert!(p.parse_string_value().is_err());
+        let test = |input: &str| {
+            let mut p = parser(input);
+            assert!(p.parse_string_value().is_err());
+        };
+        test(r#"abc de f""#); // "abc de f""
+        test(r#""abc de f"#); // ""abc de f"
     }
 
     #[test]
     fn test_parse_number() {
-        let mut p = parser("-123.45");
-        let v = p.parse_number().unwrap();
-        assert_eq!(v, number("-123.45"));
+        let test = |input: &str, result: &str| {
+            let mut p = parser(input);
+            let v = p.parse_number().unwrap();
+            assert_eq!(v, number(result));
+        };
+        test("-123.45", "-123.45");
+        test("-0", "-0");
+        test(".123", ".123");
+        test("-.123", "-.123");
+        test("123.", "123.");
+        test("000123", "000123");
+
+        // TODO: 落ちてほしい
+        test("1.23.45", "1.23.45");
+        test("-", "-");
+        test("-.", "-.");
+        test("123abc", "123");
     }
 
     fn test_object<F>(v: Value, f: F)
@@ -258,6 +279,19 @@ mod tests {
             ];
             assert_eq!(pairs, expected);
         });
+    }
+
+    #[test]
+    fn test_ng_parse_object() {
+        let test = |input: &str| {
+            let mut p = parser(input);
+            assert!(p.parse_object().is_err());
+        };
+        test(r#"{ , }"#);
+        test(r#"{"a": 123"#); // {"a":123
+        test(r#""a":123}"#); // "a":123}
+        test(r#"{"a":123  "bc":"xyz"}"#); // missing comma
+        test(r#"{"a"  123}"#); // missing colon
     }
 
     fn test_array<F>(v: Value, f: F)
@@ -317,5 +351,19 @@ mod tests {
             )];
             assert_eq!(pairs, expected);
         });
+    }
+
+    #[test]
+    fn test_ng_parse_array() {
+        let test = |input: &str| {
+            let mut p = parser(input);
+            assert!(p.parse_array().is_err());
+        };
+        test(r#"[ , ]"#);
+        test(r#"["a""#); // ["a"
+        test(r#"["a","#); // ["a",
+        test(r#""a"]"#); // "a"]
+        test(r#","a"]"#); // ,"a"]
+        test(r#"["a"  123]"#); // missing comma
     }
 }
