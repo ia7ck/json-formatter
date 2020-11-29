@@ -6,6 +6,28 @@ pub struct Parser<R> {
     pos: usize,
     lines: Lines<R>,
     line: Option<Vec<char>>,
+    line_number: usize,
+}
+
+#[derive(Debug)]
+pub struct ParseError {
+    message: String,
+    line_number: usize,
+}
+
+impl ParseError {
+    pub fn new(message: String, line_number: usize) -> Self {
+        Self {
+            message,
+            line_number,
+        }
+    }
+}
+
+impl std::fmt::Display for ParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "error at line {}: {}", self.line_number, self.message)
+    }
 }
 
 impl<R: BufRead> Parser<R> {
@@ -16,6 +38,7 @@ impl<R: BufRead> Parser<R> {
             pos: 0,
             lines,
             line: line.map(|l| l.chars().collect()),
+            line_number: 1,
         }
     }
     fn succ(&mut self) {
@@ -28,6 +51,7 @@ impl<R: BufRead> Parser<R> {
             self.pos = 0; // reset
             let line = self.lines.next().transpose().unwrap();
             self.line = line.map(|s| s.chars().collect());
+            self.line_number += 1;
         }
     }
     fn get_cur_char(&self) -> Option<&char> {
@@ -40,12 +64,16 @@ impl<R: BufRead> Parser<R> {
         }
     }
     fn expect_char(&self, expect: char) -> Result<()> {
-        let &actual = self
-            .get_cur_char()
-            .ok_or(anyhow!("expected `{}`", expect))?;
+        let &actual = self.get_cur_char().ok_or(anyhow!(ParseError::new(
+            format!("expected `{}`", expect),
+            self.line_number
+        )))?;
         ensure!(
             expect == actual,
-            format!("expected: `{}`, found: `{}`", expect, actual)
+            ParseError::new(
+                format!("expected: `{}`, found: `{}`", expect, actual),
+                self.line_number
+            )
         );
         Ok(())
     }
@@ -120,8 +148,14 @@ impl<R: BufRead> Parser<R> {
             match self.get_cur_char() {
                 Some(',') => self.succ(),
                 Some('}') => break,
-                Some(&other) => bail!("expected: `,` or `}}`, found: `{}`", other),
-                None => bail!("expected `,` or `}`"),
+                Some(&other) => bail!(ParseError::new(
+                    format!("expected: `,` or `}}`, found: `{}`", other),
+                    self.line_number
+                )),
+                None => bail!(ParseError::new(
+                    "expected `,` or `}}`".to_string(),
+                    self.line_number
+                )),
             }
         }
         self.expect_char('}')?;
@@ -143,8 +177,14 @@ impl<R: BufRead> Parser<R> {
             match self.get_cur_char() {
                 Some(',') => self.succ(),
                 Some(']') => break,
-                Some(&other) => bail!("expected: `,` or `]`, found: {}", other),
-                None => bail!("expected `,` or `]`"),
+                Some(&other) => bail!(ParseError::new(
+                    format!("expected: `,` or `]`, found: {}", other),
+                    self.line_number,
+                )),
+                None => bail!(ParseError::new(
+                    "expected `,` or `]`".to_string(),
+                    self.line_number
+                )),
             }
         }
         self.consume_char(']')?;
@@ -157,8 +197,14 @@ impl<R: BufRead> Parser<R> {
             Some('[') => self.parse_array(),
             Some('"') => self.parse_string_value(),
             Some(&ch) if (ch == '-' || ch.is_digit(10)) => self.parse_number(),
-            Some(&other) => bail!("invalid token: `{}`", other),
-            None => bail!("no token found"),
+            Some(&other) => bail!(ParseError::new(
+                format!("invalid token: `{}`", other),
+                self.line_number,
+            )),
+            None => bail!(ParseError::new(
+                "no token found".to_string(),
+                self.line_number
+            )),
         }
     }
 }
@@ -365,5 +411,49 @@ mod tests {
         test(r#""a"]"#); // "a"]
         test(r#","a"]"#); // ,"a"]
         test(r#"["a"  123]"#); // missing comma
+    }
+
+    #[test]
+    fn test_error_line() {
+        let test = |input: &str, line_number: usize| {
+            let mut p = parser(input);
+            match p.parse_object() {
+                Err(e) => {
+                    let e = e.downcast::<ParseError>().unwrap();
+                    assert_eq!(e.line_number, line_number);
+                }
+                _ => unreachable!(),
+            }
+        };
+
+        // missing colon
+        #[rustfmt::skip]
+            test(
+r#"{
+"a": 123,
+"b"  45
+}"#,
+            3,
+        );
+
+        // missing comma
+        #[rustfmt::skip]
+        test(
+r#"{
+"a": 123
+"b": 45
+}"#,
+            3,
+        );
+
+        // missing close brace
+        #[rustfmt::skip]
+            test(
+r#"{
+"a": 123,
+"b": 45
+"#,
+            4,
+        );
     }
 }
