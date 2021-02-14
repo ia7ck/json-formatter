@@ -1,6 +1,7 @@
 use crate::ast::{Key, Pair, Value};
 use anyhow::{anyhow, bail, ensure, Result};
 use std::io::{BufRead, Lines};
+use thiserror::Error;
 
 pub struct Parser<R> {
     pos: usize,
@@ -9,25 +10,19 @@ pub struct Parser<R> {
     line_number: usize,
 }
 
-#[derive(Debug)]
-pub struct ParseError {
-    message: String,
-    line_number: usize,
-}
-
-impl ParseError {
-    pub fn new(message: String, line_number: usize) -> Self {
-        Self {
-            message,
-            line_number,
-        }
-    }
-}
-
-impl std::fmt::Display for ParseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "error at line {}: {}", self.line_number, self.message)
-    }
+#[derive(Error, Debug)]
+pub enum ParseError {
+    #[error("error at line {line_number}, expected: {expected}, found: `{found}`")]
+    InvalidToken {
+        line_number: usize,
+        expected: String,
+        found: char,
+    },
+    #[error("error at line {line_number}, expected: {expected}")]
+    NotFoundToken {
+        line_number: usize,
+        expected: String,
+    },
 }
 
 impl<R: BufRead> Parser<R> {
@@ -64,16 +59,19 @@ impl<R: BufRead> Parser<R> {
         }
     }
     fn expect_char(&self, expect: char) -> Result<()> {
-        let &actual = self.get_cur_char().ok_or(anyhow!(ParseError::new(
-            format!("expected `{}`", expect),
-            self.line_number
-        )))?;
+        let &actual = self
+            .get_cur_char()
+            .ok_or(anyhow!(ParseError::NotFoundToken {
+                line_number: self.line_number,
+                expected: format!("`{}`", expect)
+            }))?;
         ensure!(
             expect == actual,
-            ParseError::new(
-                format!("expected: `{}`, found: `{}`", expect, actual),
-                self.line_number
-            )
+            ParseError::InvalidToken {
+                line_number: self.line_number,
+                expected: format!("`{}`", expect),
+                found: actual
+            }
         );
         Ok(())
     }
@@ -148,14 +146,15 @@ impl<R: BufRead> Parser<R> {
             match self.get_cur_char() {
                 Some(',') => self.succ(),
                 Some('}') => break,
-                Some(&other) => bail!(ParseError::new(
-                    format!("expected: `,` or `}}`, found: `{}`", other),
-                    self.line_number
-                )),
-                None => bail!(ParseError::new(
-                    "expected `,` or `}}`".to_string(),
-                    self.line_number
-                )),
+                Some(&other) => bail!(ParseError::InvalidToken {
+                    line_number: self.line_number,
+                    expected: format!("`,` or `}}`"),
+                    found: other
+                }),
+                None => bail!(ParseError::NotFoundToken {
+                    line_number: self.line_number,
+                    expected: format!("`,` or `}}`")
+                }),
             }
         }
         self.expect_char('}')?;
@@ -177,14 +176,15 @@ impl<R: BufRead> Parser<R> {
             match self.get_cur_char() {
                 Some(',') => self.succ(),
                 Some(']') => break,
-                Some(&other) => bail!(ParseError::new(
-                    format!("expected: `,` or `]`, found: {}", other),
-                    self.line_number,
-                )),
-                None => bail!(ParseError::new(
-                    "expected `,` or `]`".to_string(),
-                    self.line_number
-                )),
+                Some(&other) => bail!(ParseError::InvalidToken {
+                    line_number: self.line_number,
+                    expected: format!("`,` or `]`"),
+                    found: other
+                }),
+                None => bail!(ParseError::NotFoundToken {
+                    line_number: self.line_number,
+                    expected: format!("`,` or `]`")
+                }),
             }
         }
         self.consume_char(']')?;
@@ -197,14 +197,15 @@ impl<R: BufRead> Parser<R> {
             Some('[') => self.parse_array(),
             Some('"') => self.parse_string_value(),
             Some(&ch) if (ch == '-' || ch.is_digit(10)) => self.parse_number(),
-            Some(&other) => bail!(ParseError::new(
-                format!("invalid token: `{}`", other),
-                self.line_number,
-            )),
-            None => bail!(ParseError::new(
-                "no token found".to_string(),
-                self.line_number
-            )),
+            Some(&other) => bail!(ParseError::InvalidToken {
+                line_number: self.line_number,
+                expected: "some token".to_string(),
+                found: other
+            }),
+            None => bail!(ParseError::NotFoundToken {
+                line_number: self.line_number,
+                expected: "some token".to_string()
+            }),
         }
     }
 }
@@ -419,8 +420,9 @@ mod tests {
             let mut p = parser(input);
             match p.parse_object() {
                 Err(e) => {
-                    let e = e.downcast::<ParseError>().unwrap();
-                    assert_eq!(e.line_number, line_number);
+                    let msg = format!("{:?}", e);
+                    let pat = format!("line {}", line_number);
+                    assert!(msg.contains(&pat), "msg={}, pat={}", msg, pat);
                 }
                 _ => unreachable!(),
             }
@@ -428,7 +430,7 @@ mod tests {
 
         // missing colon
         #[rustfmt::skip]
-            test(
+        test(
 r#"{
 "a": 123,
 "b"  45
@@ -448,7 +450,7 @@ r#"{
 
         // missing close brace
         #[rustfmt::skip]
-            test(
+        test(
 r#"{
 "a": 123,
 "b": 45
